@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Krunker.io</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{overflow:hidden;background:#000;font-family:Impact,'Arial Black',sans-serif;user-select:none}
+    canvas{display:block}
+    #blocker{
+      position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;align-items:center;
+      justify-content:center;flex-direction:column;z-index:100;color:#fff;cursor:pointer
+    }
+    #blocker h1{font-size:52px;margin-bottom:12px;letter-spacing:8px;color:#FBC02D;text-shadow:3px 3px 0 #000}
+    #blocker p{font-size:18px;opacity:.7;margin:4px 0}
+    #blocker .class-picked{color:#4CAF50;font-size:22px;opacity:1;letter-spacing:3px}
+    #blocker .hint{font-size:13px;opacity:.45;margin-top:18px;text-align:center;line-height:1.6;font-family:'Courier New',monospace}
+
+    /* Class select */
+    #class-select{
+      position:fixed;inset:0;background:linear-gradient(160deg,#0d1117 0%,#1a2332 50%,#0d1117 100%);
+      display:none;flex-direction:column;align-items:center;justify-content:center;z-index:200;color:#fff
+    }
+    #class-select h1{font-size:40px;color:#FBC02D;letter-spacing:6px;margin-bottom:8px;text-shadow:2px 2px 0 #000}
+    #class-select .sub{opacity:.5;margin-bottom:28px;font-family:'Courier New',monospace;font-size:14px}
+    #class-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;max-width:920px;width:90%;padding:0 20px}
+    .class-card{
+      background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:6px;
+      padding:16px 12px;cursor:pointer;text-align:left;color:#fff;font-family:Impact,'Arial Black',sans-serif;
+      transition:transform .12s,border-color .12s,background .12s
+    }
+    .class-card:hover{transform:translateY(-3px);border-color:#FBC02D;background:rgba(251,192,45,.1)}
+    .class-swatch{width:100%;height:8px;border-radius:2px;margin-bottom:10px}
+    .class-name{font-size:16px;letter-spacing:1px;margin-bottom:4px}
+    .class-weapon{font-size:11px;color:#FBC02D;opacity:.9;margin-bottom:6px;font-family:'Courier New',monospace}
+    .class-desc{font-size:11px;opacity:.55;font-family:'Courier New',monospace;line-height:1.35;margin-bottom:8px}
+    .class-stats{font-size:11px;opacity:.7;font-family:'Courier New',monospace;color:#81c784}
+
+    #hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none}
+
+    #crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:14px;height:14px;transition:all .08s}
+    #crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.92)}
+    #crosshair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
+    #crosshair::after{height:2px;width:100%;top:50%;transform:translateY(-50%)}
+
+    /* Screen hitmarker */
+    #hitmarker{
+      position:absolute;top:50%;left:50%;width:22px;height:22px;transform:translate(-50%,-50%);
+      opacity:0;pointer-events:none
+    }
+    #hitmarker.show{opacity:1}
+    #hitmarker::before,#hitmarker::after{
+      content:'';position:absolute;background:#fff;width:2px;height:10px;top:50%;left:50%
+    }
+    #hitmarker::before{transform:translate(-50%,-50%) rotate(45deg) translateY(-8px)}
+    #hitmarker::after{transform:translate(-50%,-50%) rotate(-45deg) translateY(-8px)}
+    #hitmarker.headshot::before,#hitmarker.headshot::after{background:#ff1744;height:12px}
+
+    #health-ui{position:absolute;bottom:28px;left:28px;display:flex;align-items:center}
+    #health-num{color:#fff;font-size:42px;margin-right:14px;text-shadow:2px 2px 0 #000;min-width:72px;text-align:right}
+    #health-bar{width:220px;height:22px;background:rgba(0,0,0,.55);border:3px solid #333;transform:skewX(-15deg);overflow:hidden}
+    #health-fill{height:100%;background:#FBC02D;transition:width .08s,background-color .15s}
+
+    #ammo-ui{position:absolute;bottom:28px;right:36px;text-align:right}
+    #ammo-display{color:#fff;font-size:52px;text-shadow:3px 3px 0 #000;letter-spacing:2px;display:inline-block;transform:skewX(-10deg)}
+    #weapon-display{color:#FBC02D;font-size:18px;text-shadow:2px 2px 0 #000;text-transform:uppercase;margin-top:-4px;transform:skewX(-10deg)}
+    #class-display{color:rgba(255,255,255,.55);font-size:12px;font-family:'Courier New',monospace;margin-top:2px;transform:skewX(-10deg)}
+
+    #top-left{position:absolute;top:16px;left:20px}
+    #kill-counter{color:#FBC02D;font-size:30px;text-shadow:2px 2px 0 #000}
+    #kill-counter::before{content:'KILLS ';font-size:12px;opacity:.6;letter-spacing:1px}
+    #score-display{color:#fff;font-size:16px;text-shadow:1px 1px 0 #000;font-family:'Courier New',monospace;opacity:.8}
+    #score-display::before{content:'SCORE '}
+
+    #match-timer{
+      position:absolute;top:16px;left:50%;transform:translateX(-50%);
+      color:#fff;font-size:28px;text-shadow:2px 2px 0 #000;letter-spacing:2px;
+      background:rgba(0,0,0,.35);padding:4px 18px;border-radius:4px
+    }
+    #match-timer.low{color:#ff5252;animation:pulse .6s infinite alternate}
+    @keyframes pulse{from{opacity:1}to{opacity:.55}}
+
+    #kill-feed{position:absolute;top:56px;right:24px;color:#fff;font-size:14px;text-shadow:1px 1px 0 #000;text-align:right}
+    .kf-item{opacity:1;transition:opacity .7s;padding:3px 0;font-family:'Courier New',monospace;font-weight:bold}
+    .kf-item.fade{opacity:0}
+
+    #damage-overlay{position:absolute;inset:0;border:18px solid transparent;transition:border-color .08s;pointer-events:none}
+    #damage-overlay.hit{border-color:rgba(255,0,0,.4)}
+
+    /* Scope overlay */
+    #scope-overlay{position:fixed;inset:0;z-index:5;pointer-events:none;display:flex;align-items:center;justify-content:center}
+    #scope-overlay.scope-hidden{display:none}
+    .scope-ring{position:absolute;width:100vmax;height:100vmax;border-radius:50%;border:999px solid rgba(0,0,0,.75);pointer-events:none}
+    .scope-v{position:absolute;width:2px;height:100%;background:rgba(0,0,0,.6);pointer-events:none}
+    .scope-h{position:absolute;width:100%;height:2px;background:rgba(0,0,0,.6);pointer-events:none}
+
+    /* Damage numbers */
+    .dmg-num{position:fixed;color:#fff;font-size:24px;font-weight:bold;font-family:Impact,sans-serif;pointer-events:none;text-shadow:2px 2px 0 #000;z-index:8;transition:none}
+    .dmg-num.headshot{color:#ff1744;font-size:30px}
+
+    #minimap{position:absolute;top:16px;right:16px;width:140px;height:140px;background:rgba(0,0,0,.5);border:3px solid #333;border-radius:4px;overflow:hidden}
+    #minimap canvas{width:100%;height:100%}
+
+    #speed-display{
+      position:absolute;bottom:90px;left:50%;transform:translateX(-50%);
+      color:rgba(255,255,255,.55);font-size:20px;font-family:'Courier New',monospace;text-shadow:1px 1px 0 #000
+    }
+
+    #death-screen{
+      position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;
+      justify-content:center;flex-direction:column;z-index:50;color:#fff;pointer-events:none
+    }
+    #death-screen h1{font-size:64px;margin-bottom:4px;letter-spacing:4px;color:#ff3333;text-shadow:3px 3px 0 #000}
+    #death-screen .sub{font-size:16px;opacity:.5;margin-bottom:8px;font-family:'Courier New',monospace}
+    #death-screen .kills{font-size:24px;margin-bottom:12px}
+    #death-screen #respawn-cd{font-size:36px;color:#FBC02D;margin-bottom:18px}
+    #death-screen button{
+      padding:12px 36px;font-size:20px;background:#ff3333;color:#fff;border:none;cursor:pointer;
+      pointer-events:all;font-family:Impact,sans-serif;letter-spacing:2px;transform:skewX(-10deg)
+    }
+    #death-screen button:hover{background:#cc0000}
+
+    /* Scoreboard */
+    #scoreboard{
+      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);
+      background:rgba(10,14,20,.92);border:2px solid #FBC02D;border-radius:6px;
+      padding:16px 20px;z-index:60;display:none;min-width:480px;pointer-events:none
+    }
+    #scoreboard.open{display:block}
+    #scoreboard h2{color:#FBC02D;letter-spacing:3px;margin-bottom:12px;text-align:center;font-size:22px}
+    #scoreboard table{width:100%;border-collapse:collapse;font-family:'Courier New',monospace;font-size:13px;color:#eee}
+    #scoreboard th{text-align:left;color:#FBC02D;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.15);font-size:11px}
+    #scoreboard td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+    #scoreboard tr.you{background:rgba(76,175,80,.18);color:#a5d6a7}
+    #scoreboard th:nth-child(1),#scoreboard td:nth-child(1){width:32px}
+    #scoreboard th:nth-child(n+3),#scoreboard td:nth-child(n+3){text-align:right}
+
+    #match-end{
+      position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;
+      justify-content:center;flex-direction:column;z-index:70;color:#fff
+    }
+    #match-end h1{font-size:48px;color:#FBC02D;letter-spacing:4px;margin-bottom:8px}
+    #match-end #winner-name{font-size:32px;color:#4CAF50;margin-bottom:16px}
+    #match-end p{opacity:.6;font-family:'Courier New',monospace}
+  </style>
+</head>
+<body>
+  <div id="class-select">
+    <h1>SELECT CLASS</h1>
+    <p class="sub">Pick your loadout — just like Krunker</p>
+    <div id="class-grid"></div>
+  </div>
+
+  <div id="blocker">
+    <h1>KRUNKER.IO</h1>
+    <p>Loading…</p>
+  </div>
+
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="hitmarker"></div>
+    <div id="scope-overlay" class="scope-hidden">
+      <div class="scope-ring"></div>
+      <div class="scope-v"></div>
+      <div class="scope-h"></div>
+    </div>
+    <div id="health-ui">
+      <div id="health-num">100</div>
+      <div id="health-bar"><div id="health-fill" style="width:100%"></div></div>
+    </div>
+    <div id="ammo-ui">
+      <div id="ammo-display">30</div>
+      <div id="weapon-display">ASSAULT RIFLE</div>
+      <div id="class-display">TRIGGERMAN</div>
+    </div>
+    <div id="top-left">
+      <div id="kill-counter">0</div>
+      <div id="score-display">0</div>
+    </div>
+    <div id="match-timer">3:00</div>
+    <div id="speed-display">0</div>
+    <div id="kill-feed"></div>
+    <div id="damage-overlay"></div>
+    <div id="minimap"><canvas id="mm-canvas" width="130" height="130"></canvas></div>
+  </div>
+
+  <div id="death-screen">
+    <h1>YOU DIED</h1>
+    <p class="killed-by"></p>
+    <p class="sub">Respawning in</p>
+    <div id="respawn-cd">2.5</div>
+    <p class="kills">Kills: <span id="final-kills">0</span></p>
+    <button id="respawn-btn">RESPAWN NOW</button>
+  </div>
+
+  <div id="scoreboard">
+    <h2>SCOREBOARD</h2>
+    <table>
+      <thead>
+        <tr><th>#</th><th>NAME</th><th>CLASS</th><th>SCORE</th><th>K</th><th>D</th></tr>
+      </thead>
+      <tbody id="sb-body"></tbody>
+    </table>
+  </div>
+
+  <div id="match-end">
+    <h1>MATCH OVER</h1>
+    <div id="winner-name">—</div>
+    <p>Hold Tab to review scores · Refresh to play again</p>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
