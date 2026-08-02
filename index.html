@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔫</text></svg>" />
   <title>Krunker.io</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
@@ -16,6 +17,83 @@
     #blocker p{font-size:18px;opacity:.7;margin:4px 0}
     #blocker .class-picked{color:#4CAF50;font-size:22px;opacity:1;letter-spacing:3px}
     #blocker .hint{font-size:13px;opacity:.45;margin-top:18px;text-align:center;line-height:1.6;font-family:'Courier New',monospace}
+
+
+    /* Menu */
+    #menu{
+      position:fixed;inset:0;background:linear-gradient(160deg,#0d1117 0%,#1a2332 50%,#0d1117 100%);
+      display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:150;color:#fff
+    }
+    #menu h1{font-size:56px;margin-bottom:10px;letter-spacing:10px;color:#FBC02D;text-shadow:4px 4px 0 #000}
+    #menu .menu-sub{opacity:.5;margin-bottom:32px;font-family:'Courier New',monospace;font-size:13px;letter-spacing:1px}
+    #menu input{
+      background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.15);border-radius:4px;
+      color:#fff;font-size:18px;padding:10px 16px;width:280px;margin-bottom:20px;text-align:center;
+      font-family:'Courier New',monospace;outline:none
+    }
+    #menu input:focus{border-color:#FBC02D}
+    .menu-buttons{display:flex;flex-direction:column;gap:14px}
+    .menu-btn{
+      padding:14px 60px;font-size:20px;border:none;cursor:pointer;border-radius:4px;
+      font-family:Impact,'Arial Black',sans-serif;letter-spacing:2px;color:#fff;transform:skewX(-8deg);
+      transition:transform .12s,filter .12s
+    }
+    .menu-btn:hover{transform:skewX(-8deg) translateY(-2px);filter:brightness(1.15)}
+    #btn-online{background:#2e7d32}
+    #btn-offline{background:#37474f}
+    #menu-error{display:none;color:#ff5252;font-family:'Courier New',monospace;margin-top:16px;max-width:420px;text-align:center;line-height:1.5}
+
+    /* Lobby */
+    #lobby{
+      position:fixed;inset:0;background:linear-gradient(160deg,#0d1117 0%,#1a2332 50%,#0d1117 100%);
+      display:none;align-items:center;justify-content:center;flex-direction:column;z-index:150;color:#fff
+    }
+    #lobby h1{font-size:40px;color:#FBC02D;letter-spacing:6px;margin-bottom:4px;text-shadow:2px 2px 0 #000}
+    #lobby .lobby-sub{opacity:.5;margin-bottom:22px;font-family:'Courier New',monospace;font-size:13px}
+    #lobby-body{display:flex;gap:22px;width:min(860px,92vw);max-height:70vh}
+    #room-list-wrap{flex:1.4;background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.12);border-radius:6px;padding:14px;overflow-y:auto;min-height:300px}
+    #room-list-wrap h2{font-size:15px;letter-spacing:2px;color:#FBC02D;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+    #room-list{display:flex;flex-direction:column;gap:8px}
+    .room-row{
+      display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+      border-radius:4px;padding:10px 12px;font-family:'Courier New',monospace;font-size:13px
+    }
+    .room-row .r-name{flex:1;font-weight:bold;color:#fff}
+    .room-row .r-count{color:#81c784;white-space:nowrap}
+    .room-row .r-code{color:#FBC02D;letter-spacing:2px;white-space:nowrap}
+    .room-join{
+      padding:6px 14px;background:#2e7d32;color:#fff;border:none;border-radius:3px;cursor:pointer;
+      font-family:Impact,sans-serif;letter-spacing:1px
+    }
+    .room-join:hover{filter:brightness(1.2)}
+    #room-empty{opacity:.4;font-family:'Courier New',monospace;font-size:13px;padding:12px;text-align:center}
+    #lobby-side{flex:1;display:flex;flex-direction:column;gap:14px}
+    .lobby-panel{background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.12);border-radius:6px;padding:14px}
+    .lobby-panel h3{font-size:13px;letter-spacing:2px;color:#FBC02D;margin-bottom:10px}
+    .lobby-panel input{
+      background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.15);border-radius:4px;color:#fff;
+      font-size:14px;padding:8px 10px;width:100%;margin-bottom:8px;font-family:'Courier New',monospace;outline:none
+    }
+    .lobby-panel input:focus{border-color:#FBC02D}
+    .lobby-btn{
+      width:100%;padding:10px 0;font-size:15px;border:none;cursor:pointer;border-radius:4px;color:#fff;
+      font-family:Impact,'Arial Black',sans-serif;letter-spacing:2px
+    }
+    #btn-quick{background:#2e7d32}
+    #btn-create{background:#37474f}
+    #btn-join-code{background:#37474f}
+    .lobby-check{display:flex;align-items:center;gap:8px;font-family:'Courier New',monospace;font-size:12px;opacity:.8;margin-bottom:8px}
+    #lobby-error{display:none;color:#ff5252;font-family:'Courier New',monospace;font-size:12px;margin-top:8px;text-align:center}
+    #btn-lobby-back{background:none;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.7);margin-top:2px}
+    .lobby-status{font-family:'Courier New',monospace;font-size:12px;opacity:.55;margin-top:12px;text-align:center}
+
+    #net-info{
+      position:absolute;top:58px;left:50%;transform:translateX(-50%);
+      color:rgba(255,255,255,.5);font-size:11px;font-family:'Courier New',monospace;letter-spacing:1px;
+      text-shadow:1px 1px 0 #000;white-space:nowrap
+    }
+    #spectate-info{font-family:'Courier New',monospace;font-size:13px;color:#FBC02D;margin-bottom:10px;min-height:16px}
+    #menu .menu-hint{opacity:.4;margin-top:26px;font-family:'Courier New',monospace;font-size:12px}
 
     /* Class select */
     #class-select{
@@ -146,6 +224,48 @@
   </style>
 </head>
 <body>
+  <div id="menu">
+    <h1>KRUNKER.IO</h1>
+    <p class="menu-sub">BROWSER FPS · CLICK A MODE</p>
+    <input id="name-input" maxlength="20" placeholder="Enter your name" autocomplete="off" />
+    <div class="menu-buttons">
+      <button id="btn-online" class="menu-btn">▶ PLAY ONLINE</button>
+      <button id="btn-offline" class="menu-btn">PLAY OFFLINE (BOTS)</button>
+    </div>
+    <div id="menu-error"></div>
+    <p class="menu-hint">Online needs the server running: npm run server<br>Custom server: ?server=ws://host:port</p>
+  </div>
+
+  <div id="lobby">
+    <h1>LOBBY</h1>
+    <p class="lobby-sub">JOIN A ROOM OR CREATE YOUR OWN</p>
+    <div id="lobby-body">
+      <div id="room-list-wrap">
+        <h2><span>PUBLIC ROOMS</span><span class="lobby-status" id="lobby-status">connecting…</span></h2>
+        <div id="room-list"><div id="room-empty">Loading rooms…</div></div>
+      </div>
+      <div id="lobby-side">
+        <div class="lobby-panel">
+          <h3>QUICK MATCH</h3>
+          <button id="btn-quick" class="lobby-btn">▶ QUICK MATCH</button>
+        </div>
+        <div class="lobby-panel">
+          <h3>CREATE ROOM</h3>
+          <input id="create-name" maxlength="20" placeholder="Room name" />
+          <label class="lobby-check"><input type="checkbox" id="create-priv" /> Private (join by code only)</label>
+          <button id="btn-create" class="lobby-btn">CREATE ROOM</button>
+        </div>
+        <div class="lobby-panel">
+          <h3>JOIN BY CODE</h3>
+          <input id="join-code" maxlength="8" placeholder="Room code e.g. AB12" />
+          <button id="btn-join-code" class="lobby-btn">JOIN ROOM</button>
+        </div>
+        <div id="lobby-error"></div>
+        <button id="btn-lobby-back" class="lobby-btn">◀ BACK TO MENU</button>
+      </div>
+    </div>
+  </div>
+
   <div id="class-select">
     <h1>SELECT CLASS</h1>
     <p class="sub">Pick your loadout — just like Krunker</p>
@@ -179,6 +299,7 @@
       <div id="score-display">0</div>
     </div>
     <div id="match-timer">3:00</div>
+    <div id="net-info"></div>
     <div id="speed-display">0</div>
     <div id="kill-feed"></div>
     <div id="damage-overlay"></div>
@@ -188,6 +309,7 @@
   <div id="death-screen">
     <h1>YOU DIED</h1>
     <p class="killed-by"></p>
+    <div id="spectate-info"></div>
     <p class="sub">Respawning in</p>
     <div id="respawn-cd">2.5</div>
     <p class="kills">Kills: <span id="final-kills">0</span></p>

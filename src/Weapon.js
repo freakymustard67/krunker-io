@@ -1,19 +1,18 @@
 import * as THREE from 'three'
-import { CLASSES, SECONDARY, MELEE, SCORE_KILL, SCORE_HEADSHOT, SCORE_MELEE } from './constants.js'
 
+/**
+ * Client-side weapon: first-person viewmodel, animation (bob / recoil /
+ * inspect / ADS), and HUD display. All damage + ammo logic lives in the
+ * shared WeaponSim (offline) or on the server (online).
+ */
 export default class Weapon {
-  constructor(camera, scene) {
+  constructor(camera, scene, classDef) {
     this.camera = camera
     this.scene = scene
-    this.raycaster = new THREE.Raycaster()
-    this.raycaster.far = 200
-
-    this.slot = 0 // 0 primary, 1 secondary, 2 melee
-    this.loadout = [CLASSES[0].weapon, SECONDARY, MELEE]
-    this.ammo = [CLASSES[0].weapon.magSize, SECONDARY.magSize, Infinity]
-    this.lastFireTime = 0
+    this.classDef = classDef
+    this.slot = 0
+    this.ammo = classDef ? this._initialAmmo(classDef) : []
     this.reloading = false
-    this.reloadTimer = 0
 
     this.group = new THREE.Group()
     camera.add(this.group)
@@ -22,21 +21,20 @@ export default class Weapon {
     this.bobPhase = 0
     this.bobAmount = 0
     this.recoilAnim = 0
-    this.onKill = null
-    this.onHit = null
-    this._botMeshes = []
-    this._worldMeshes = []
     this.sfx = null
-    this.hud = null
     this.inspecting = false
     this.inspectTimer = 0
 
+    // Callbacks wired up by main.js
+    this.onReload = null
+    this.onSwitch = null
+
     document.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyR') this._reload()
-      if (e.code === 'Digit1') this._switch(0)
-      if (e.code === 'Digit2') this._switch(1)
-      if (e.code === 'Digit3') this._switch(2)
-      if (e.code === 'KeyQ') this._switch(this.slot === 2 ? 0 : 2) // knife quick
+      if (e.code === 'KeyR') this.onReload?.()
+      if (e.code === 'Digit1') this.onSwitch?.(0)
+      if (e.code === 'Digit2') this.onSwitch?.(1)
+      if (e.code === 'Digit3') this.onSwitch?.(2)
+      if (e.code === 'KeyQ') this.onSwitch?.(this.slot === 2 ? 0 : 2) // knife quick
       if (e.code === 'KeyJ' && !this.inspecting) {
         this.inspecting = true
         this.inspectTimer = 1.2
@@ -45,29 +43,55 @@ export default class Weapon {
     document.addEventListener('wheel', (e) => {
       if (!document.pointerLockElement) return
       const dir = e.deltaY > 0 ? 1 : -1
-      this._switch((this.slot + dir + 3) % 3)
+      this.onSwitch?.((this.slot + dir + 3) % 3)
     })
   }
 
-  get current() { return this.loadout[this.slot] }
+  get current() { return this.classDef ? this.classDef.weapon : null }
 
-  setClass(cls) {
-    this.loadout = [{ ...cls.weapon }, { ...SECONDARY }, { ...MELEE }]
-    this.ammo = [cls.weapon.magSize, SECONDARY.magSize, Infinity]
+  _initialAmmo(classDef) {
+    const w = classDef.weapon
+    return [w.magSize, 10, Infinity] // primary, pistol, knife
+  }
+
+  setLoadout(classDef) {
+    this.classDef = classDef
     this.slot = 0
+    this.ammo = this._initialAmmo(classDef)
     this.reloading = false
-    this.reloadTimer = 0
     this._buildModel()
     this._updateHUD()
   }
 
-  resetAmmo() {
-    this.ammo = this.loadout.map((w) => w.magSize)
-    this.reloading = false
-    this.reloadTimer = 0
-    this.slot = 0
-    this._buildModel()
+  /**
+   * Sync display state from the authoritative source (WeaponSim or server
+   * snapshot). Rebuilds the viewmodel when the slot changes.
+   */
+  sync(state) {
+    const slotChanged = state.slot !== this.slot
+    this.slot = state.slot
+    if (Array.isArray(state.ammo)) this.ammo = state.ammo
+    this.reloading = !!state.reloading
+    if (slotChanged) this._buildModel()
     this._updateHUD()
+  }
+
+  /** Called when the authoritative sim/server says a shot was fired. */
+  notifyShot(melee = false) {
+    if (melee) {
+      this.recoilAnim += 0.18
+      if (this.sfx) this.sfx.meleeSwing()
+      return
+    }
+    const w = this.current
+    this.recoilAnim += (w?.recoil) || 0.05
+    if (this.sfx) this.sfx.fire(w?.auto ?? false)
+    this._muzzleFlash()
+  }
+
+  /** Called when the authoritative sim/server says we landed a hit. */
+  notifyHit(headshot = false) {
+    if (this.sfx) this.sfx.hit(headshot)
   }
 
   _buildModel() {
@@ -158,22 +182,6 @@ export default class Weapon {
     }
   }
 
-  _switch(idx) {
-    if (idx === this.slot || idx < 0 || idx > 2) return
-    this.slot = idx
-    this.reloading = false
-    this.reloadTimer = 0
-    this._buildModel()
-    this._updateHUD()
-  }
-
-  _reload() {
-    const w = this.current
-    if (w.melee || this.reloading || this.ammo[this.slot] === w.magSize || w.magSize === Infinity) return
-    this.reloading = true
-    this.reloadTimer = w.reloadTime
-  }
-
   _updateHUD() {
     const w = this.current
     const ammo = this.ammo[this.slot]
@@ -187,150 +195,8 @@ export default class Weapon {
     if (wepEl) wepEl.textContent = w.name
   }
 
-  setTargets(botMeshes, worldMeshes) {
-    this._botMeshes = botMeshes
-    this._worldMeshes = worldMeshes
-  }
-
-  fire(botMeshes, worldMeshes, fx, player) {
-    if (this.reloading || !player.alive) return false
-
-    const now = performance.now() / 1000
-    const w = this.current
-    if (now - this.lastFireTime < w.fireRate) return false
-
-    if (w.melee) {
-      this.lastFireTime = now
-      if (this.sfx) this.sfx.meleeSwing()
-      return this._meleeAttack(botMeshes, fx, player)
-    }
-
-    const ammo = this.ammo[this.slot]
-    if (ammo <= 0) { this._reload(); return false }
-
-    this.lastFireTime = now
-    const pellets = w.pellets || 1
-    let anyHit = false
-    if (this.sfx) this.sfx.fire(w.auto)
-    for (let i = 0; i < pellets; i++) {
-      if (this._firePellet(w, botMeshes, worldMeshes, fx, player)) anyHit = true
-    }
-
-    if (w.magSize !== Infinity) this.ammo[this.slot]--
-    this._updateHUD()
-    this.recoilAnim += w.recoil || 0.05
-    if (w.kick) player.applyKick(w.kick)
-    this._muzzleFlash()
-    return anyHit
-  }
-
-  _meleeAttack(botMeshes, fx, player) {
-    const origin = new THREE.Vector3()
-    this.camera.getWorldPosition(origin)
-    const q = new THREE.Quaternion()
-    this.camera.getWorldQuaternion(q)
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q)
-    this.raycaster.set(origin, dir)
-    this.raycaster.far = MELEE.range
-    const hits = this.raycaster.intersectObjects(botMeshes, true)
-    this.raycaster.far = 200
-
-    if (hits.length > 0) {
-      const hit = hits[0]
-      const hitBot = this._findBot(hit.object, botMeshes)
-      if (hitBot && hitBot.alive) {
-        const killed = hitBot.takeDamage(MELEE.damage, fx)
-        fx.addHitMarker(hit.point)
-        fx.addImpact(hit.point, 0xff3333, 5)
-        fx.showScreenHitmarker(false)
-        if (this.sfx) this.sfx.hit(false)
-        if (this.hud) this.hud.showDamageNumber(hit.point, MELEE.damage, false)
-        if (this.onHit) this.onHit(false)
-        if (killed) {
-          player.kills++
-          player.addScore(SCORE_KILL + SCORE_MELEE)
-          if (this.onKill) this.onKill(hitBot, false, true)
-        }
-        return true
-      }
-    }
-    this.recoilAnim += 0.08
-    return false
-  }
-
-  _findBot(obj, botMeshes) {
-    let o = obj
-    while (o) {
-      for (const bm of botMeshes) {
-        if (o === bm) return bm.userData.bot
-      }
-      o = o.parent
-    }
-    return null
-  }
-
-  _firePellet(w, botMeshes, worldMeshes, fx, player) {
-    const origin = new THREE.Vector3()
-    this.camera.getWorldPosition(origin)
-    const q = new THREE.Quaternion()
-    this.camera.getWorldQuaternion(q)
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q)
-
-    const spread = player.ads ? (w.adsSpread ?? 0) : (w.spread ?? 0.05)
-    // Moving spread penalty
-    const spd = Math.sqrt(player.vel.x ** 2 + player.vel.z ** 2)
-    const movePen = player.grounded ? spd * 0.004 : spd * 0.006
-    const finalSpread = spread + movePen
-
-    dir.x += (Math.random() - 0.5) * finalSpread * 2
-    dir.y += (Math.random() - 0.5) * finalSpread * 2
-    dir.z += (Math.random() - 0.5) * finalSpread * 2
-    dir.normalize()
-
-    this.raycaster.set(origin, dir)
-    const allTargets = [...botMeshes, ...worldMeshes]
-    const hits = this.raycaster.intersectObjects(allTargets, true)
-
-    if (hits.length === 0) {
-      fx.addTracer(origin, origin.clone().add(dir.clone().multiplyScalar(200)), 0xffee44)
-      return false
-    }
-
-    const hit = hits[0]
-    const hitPos = hit.point
-    const hitBot = this._findBot(hit.object, botMeshes)
-
-    if (hitBot && hitBot.alive) {
-      // Headshot if hit point is near head height relative to bot feet
-      const localY = hitPos.y - hitBot.pos.y
-      const isHead = localY > 1.2
-      const dmg = w.damage * (isHead ? (w.headMult || 1.5) : 1)
-      const killed = hitBot.takeDamage(dmg, fx)
-
-      fx.addHitMarker(hitPos)
-      fx.addImpact(hitPos, isHead ? 0xff0000 : 0xff3333, isHead ? 6 : 3)
-      fx.showScreenHitmarker(isHead)
-      if (this.sfx) this.sfx.hit(isHead)
-      if (this.hud) this.hud.showDamageNumber(hitPos, dmg, isHead)
-      if (this.onHit) this.onHit(isHead)
-
-      if (killed) {
-        player.kills++
-        player.addScore(SCORE_KILL + (isHead ? SCORE_HEADSHOT : 0))
-        if (this.sfx) this.sfx.kill()
-        if (this.onKill) this.onKill(hitBot, isHead, false)
-      }
-      fx.addTracer(origin, hitPos, w.id === 'sniper' ? 0xffffff : 0xffee44)
-      return true
-    }
-
-    fx.addImpact(hitPos, 0xcccccc, 4)
-    fx.addTracer(origin, hitPos, 0xffee44)
-    return false
-  }
-
   _muzzleFlash() {
-    if (this.current.melee) return
+    if (this.current?.melee) return
     const flash = new THREE.Mesh(
       new THREE.SphereGeometry(0.035, 4, 4),
       new THREE.MeshBasicMaterial({ color: 0xffff88, transparent: true, opacity: 0.85 }),
@@ -345,17 +211,9 @@ export default class Weapon {
   }
 
   update(dt, player) {
-    if (this.reloading) {
-      this.reloadTimer -= dt
-      if (this.reloadTimer <= 0) {
-        this.reloading = false
-        this.ammo[this.slot] = this.current.magSize
-      }
-    }
-
     const moving = player.keys.forward || player.keys.backward || player.keys.left || player.keys.right
-    if (moving && player.grounded) {
-      this.bobPhase += dt * (player.sliding ? 16 : 11)
+    if (moving && player.sim.grounded) {
+      this.bobPhase += dt * (player.sim.sliding ? 16 : 11)
       this.bobAmount = Math.abs(Math.sin(this.bobPhase)) * (player.ads ? 0.002 : 0.007)
     } else {
       this.bobPhase = 0
@@ -391,7 +249,6 @@ export default class Weapon {
         this.inspecting = false
         this.group.rotation.z = 0
       }
-      this._updateHUD()
       return
     }
 
@@ -399,13 +256,13 @@ export default class Weapon {
     let targetY = -0.2
     let targetZ = -0.48
 
-    if (this.current.melee) {
+    if (this.current?.melee) {
       targetX = 0.18
       targetY = -0.18
       targetZ = -0.35
     }
 
-    if (player.ads && !this.current.melee) {
+    if (player.ads && !this.current?.melee) {
       targetX = 0
       targetY = -0.14
       targetZ = -0.38
@@ -416,7 +273,5 @@ export default class Weapon {
       targetY - this.bobAmount * 0.5 + this.recoilAnim,
       targetZ + this.recoilAnim * 0.5,
     )
-
-    this._updateHUD()
   }
 }

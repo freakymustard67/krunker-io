@@ -1,103 +1,43 @@
-/**
- * Krunker-style equipment: throwable grenade (G key).
- * Simple physics + delayed explosion with area damage + FX.
- */
 import * as THREE from 'three'
+import EquipmentSim from '../shared/EquipmentSim.js'
 
+/**
+ * Client-side grenade rendering + explosion FX. Offline mode also creates a
+ * local EquipmentSim; online mode renders from server snapshots.
+ */
 export default class Equipment {
-  constructor(scene, worldBoxes, player, bots, fx, hud) {
+  constructor(scene, opts = {}) {
     this.scene = scene
-    this.worldBoxes = worldBoxes
-    this.player = player
-    this.bots = bots
-    this.fx = fx
-    this.hud = hud
-    this.grenades = []
-    this._setupInput()
+    this.fx = opts.fx || null
+    this.hud = opts.hud || null
+    this.meshes = []
   }
 
-  _setupInput() {
-    document.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyG' && document.pointerLockElement && this.player.alive) {
-        this._throw()
-      }
-    })
-  }
-
-  _throw() {
-    // Spawn a grenade in front of the player
-    const origin = new THREE.Vector3()
-    this.player.camera.getWorldPosition(origin)
-    const q = new THREE.Quaternion()
-    this.player.camera.getWorldQuaternion(q)
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q)
-
-    const startPos = origin.clone().add(dir.clone().multiplyScalar(0.8))
-    const vel = dir.clone().multiplyScalar(16)
-    vel.y += 4 // slight upward arc
-
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.1, 8, 8),
-      new THREE.MeshLambertMaterial({ color: 0x2e7d32 }),
-    )
-    mesh.position.copy(startPos)
-    this.scene.add(mesh)
-
-    this.grenades.push({
-      pos: startPos,
-      vel,
-      mesh,
-      timer: 2.0, // seconds to detonate
-      live: true,
-    })
-  }
-
-  update(dt) {
-    for (let i = this.grenades.length - 1; i >= 0; i--) {
-      const g = this.grenades[i]
-      if (!g.live) continue
-
-      g.timer -= dt
-
-      // Physics
-      g.vel.y += -35 * dt
-      g.pos.x += g.vel.x * dt
-      g.pos.y += g.vel.y * dt
-      g.pos.z += g.vel.z * dt
-
-      // Bounce off ground
-      if (g.pos.y < 0) {
-        g.pos.y = 0
-        g.vel.y *= -0.35
-        g.vel.x *= 0.8
-        g.vel.z *= 0.8
-      }
-
-      // Bounce off walls (simple AABB check)
-      // (skip for performance — just boundary clamp)
-      const bound = 44
-      if (g.pos.x < -bound) { g.pos.x = -bound; g.vel.x *= -0.3 }
-      if (g.pos.x > bound) { g.pos.x = bound; g.vel.x *= -0.3 }
-      if (g.pos.z < -bound) { g.pos.z = -bound; g.vel.z *= -0.3 }
-      if (g.pos.z > bound) { g.pos.z = bound; g.vel.z *= -0.3 }
-
-      g.mesh.position.copy(g.pos)
-
-      // Explode
-      if (g.timer <= 0) {
-        this._explode(g)
-        this.scene.remove(g.mesh)
-        g.mesh.geometry.dispose()
-        g.mesh.material.dispose()
-        this.grenades.splice(i, 1)
-      }
+  /**
+   * sync(list) — list of { x, y, z, t } grenade states.
+   */
+  sync(list) {
+    while (this.meshes.length < list.length) {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 8, 8),
+        new THREE.MeshLambertMaterial({ color: 0x2e7d32 }),
+      )
+      this.scene.add(mesh)
+      this.meshes.push(mesh)
+    }
+    while (this.meshes.length > list.length) {
+      const m = this.meshes.pop()
+      this.scene.remove(m)
+      m.geometry.dispose()
+      m.material.dispose()
+    }
+    for (let i = 0; i < list.length; i++) {
+      this.meshes[i].position.set(list[i].x, list[i].y, list[i].z)
     }
   }
 
-  _explode(g) {
-    const pos = g.pos
-
-    // Visual: expanding ring + flash
+  /** Explosion visuals (offline from local sim, online from server event). */
+  onBoom(pos) {
     const ringGeo = new THREE.RingGeometry(0.1, 0.5, 16)
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0xff6600,
@@ -112,7 +52,6 @@ export default class Equipment {
     ring.rotation.x = -Math.PI / 2
     this.scene.add(ring)
 
-    // Animate ring expansion
     const startTime = performance.now()
     const expand = () => {
       const elapsed = (performance.now() - startTime) / 1000
@@ -129,7 +68,6 @@ export default class Equipment {
     }
     expand()
 
-    // Flash sphere
     const flash = new THREE.Mesh(
       new THREE.SphereGeometry(0.3, 8, 8),
       new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.6 }),
@@ -142,36 +80,6 @@ export default class Equipment {
       flash.material.dispose()
     }, 150)
 
-    // Damage in radius
-    const radius = 5.5
-    const maxDmg = 60
-
-    // Player damage
-    if (this.player.alive) {
-      const d = this.player.pos.distanceTo(pos)
-      if (d < radius) {
-        const dmg = Math.round(maxDmg * (1 - d / radius))
-        const killed = this.player.takeDamage(dmg)
-        if (killed && this.hud) {
-          this.hud.addKill('[EXPLOSION]', 'You', false, false)
-        }
-      }
-    }
-
-    // Bot damage
-    for (const bot of this.bots) {
-      if (!bot.alive) continue
-      const d = bot.pos.distanceTo(pos)
-      if (d < radius) {
-        const dmg = Math.round(maxDmg * (1 - d / radius))
-        const killed = bot.takeDamage(dmg, this.fx)
-        if (killed && this.hud) {
-          this.hud.addKill('You', bot.name, false, false)
-        }
-      }
-    }
-
-    // Impact particles
     for (let i = 0; i < 12; i++) {
       const pDir = new THREE.Vector3(
         (Math.random() - 0.5) * 2,
@@ -195,3 +103,5 @@ export default class Equipment {
     }
   }
 }
+
+export { EquipmentSim }

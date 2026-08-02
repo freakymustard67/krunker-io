@@ -1,5 +1,5 @@
-import { CLASSES, MATCH_TIME } from './constants.js'
-import { formatTime } from './utils.js'
+import { CLASSES, MATCH_TIME } from '../shared/constants.js'
+import { formatTime } from '../shared/utils.js'
 
 export default class HUD {
   constructor(player, weapon, gameState) {
@@ -13,6 +13,8 @@ export default class HUD {
     this.matchOver = false
     this.dmgNumbers = []
     this.lastHitBy = null // bot reference for kill cam
+    this._respawnSent = false
+    this.killerName = null
 
     this._setupDeathScreen()
     this._setupScoreboard()
@@ -63,7 +65,10 @@ export default class HUD {
   }
 
   update(dt) {
-    if (!this.matchOver) {
+    const net = this.gameState.net
+    if (net?.connected && net.latest) {
+      this.matchTime = net.latest.match
+    } else if (!this.matchOver) {
       this.matchTime -= dt
       if (this.matchTime <= 0) {
         this.matchTime = 0
@@ -107,6 +112,18 @@ export default class HUD {
       timer.classList.toggle('low', this.matchTime < 30 && this.matchTime > 0)
     }
 
+    // Net info: ping + fps (throttled)
+    this._infoTick = (this._infoTick || 0) + dt
+    if (this._infoTick > 0.25) {
+      this._infoTick = 0
+      const ni = document.getElementById('net-info')
+      if (ni) {
+        const fps = Math.round(this.gameState.fps || 0)
+        const me = net?.connected ? net.my : null
+        ni.textContent = me ? `PING ${me.pg || 0}ms · FPS ${fps}` : `FPS ${fps}`
+      }
+    }
+
     const cls = document.getElementById('class-display')
     if (cls) {
       const c = CLASSES.find((x) => x.id === p.classId)
@@ -137,9 +154,12 @@ export default class HUD {
       this.showDeath()
       const cd = document.getElementById('respawn-cd')
       if (cd) cd.textContent = Math.max(0, p.respawnTimer).toFixed(1)
-      if (p.respawnTimer <= 0) {
+      if (p.respawnTimer <= 0 && !this._respawnSent) {
+        this._respawnSent = true
         this.gameState.respawn()
       }
+    } else {
+      this._respawnSent = false
     }
 
     if (this.scoreboardOpen) this._renderScoreboard()
@@ -167,24 +187,63 @@ export default class HUD {
   _renderScoreboard() {
     const body = document.getElementById('sb-body')
     if (!body) return
-    const rows = [
-      {
-        name: this.player.name,
-        score: this.player.score,
-        kills: this.player.kills,
-        deaths: this.player.deaths,
-        cls: this.player.classId,
-        you: true,
-      },
-      ...(this.gameState.bots || []).map((b) => ({
-        name: b.name,
-        score: b.score,
-        kills: b.kills,
-        deaths: b.deaths,
-        cls: b.cls?.id || '?',
-        you: false,
-      })),
-    ]
+    const net = this.gameState.net
+    const online = !!(net?.connected && net.latest)
+
+    // Dynamic header: room name (online) + ping column
+    const title = document.querySelector('#scoreboard h2')
+    if (title) {
+      const room = this.gameState.roomInfo
+      title.textContent = online && room?.name
+        ? `SCOREBOARD — ${room.name.toUpperCase()} (${room.code})`
+        : 'SCOREBOARD'
+    }
+    const head = document.querySelector('#scoreboard thead tr')
+    if (head) {
+      head.innerHTML = online
+        ? '<th>#</th><th>NAME</th><th>CLASS</th><th>SCORE</th><th>K</th><th>D</th><th>PING</th>'
+        : '<th>#</th><th>NAME</th><th>CLASS</th><th>SCORE</th><th>K</th><th>D</th>'
+    }
+    let rows
+    const myPing = online ? (net.latest.players.get(net.myId)?.pg ?? 0) : 0
+    if (net?.connected && net.latest) {
+      rows = []
+      for (const [id, info] of net.roster.players) {
+        const e = net.latest.players.get(id)
+        if (!e) continue
+        rows.push({
+          name: info.name, score: e.sc, kills: e.ks, deaths: e.ds,
+          cls: info.cls, you: id === net.myId, ping: e.pg ?? 0,
+        })
+      }
+      for (const [id, info] of net.roster.bots) {
+        const e = net.latest.bots.get(id)
+        if (!e) continue
+        rows.push({
+          name: info.name, score: e.sc, kills: e.ks, deaths: e.ds,
+          cls: info.cls, you: false, ping: 0,
+        })
+      }
+    } else {
+      rows = [
+        {
+          name: this.player.name,
+          score: this.player.score,
+          kills: this.player.kills,
+          deaths: this.player.deaths,
+          cls: this.player.classId,
+          you: true,
+        },
+        ...(this.gameState.bots || []).map((b) => ({
+          name: b.name,
+          score: b.score,
+          kills: b.kills,
+          deaths: b.deaths,
+          cls: b.cls?.id || '?',
+          you: false,
+        })),
+      ]
+    }
     rows.sort((a, b) => b.score - a.score || b.kills - a.kills)
 
     body.innerHTML = rows.map((r, i) => `
@@ -195,6 +254,7 @@ export default class HUD {
         <td>${r.score}</td>
         <td>${r.kills}</td>
         <td>${r.deaths}</td>
+        ${r.ping !== null ? `<td>${r.ping}ms</td>` : ''}
       </tr>
     `).join('')
   }
@@ -241,8 +301,8 @@ export default class HUD {
     if (el) el.style.display = 'flex'
     const killerEl = document.querySelector('.killed-by')
     if (killerEl) {
-      const kb = this.lastHitBy || (this.player && this.player.lastHitBy)
-      killerEl.textContent = kb ? `Killed by ${kb.name}` : ''
+      const kb = this.killerName || this.lastHitBy || (this.player && this.player.lastHitBy)
+      killerEl.textContent = kb ? `Killed by ${kb.name ?? kb}` : ''
       killerEl.style.display = kb ? 'block' : 'none'
     }
   }
@@ -260,6 +320,18 @@ export default class HUD {
     if (w) w.textContent = winnerName
     this._renderScoreboard()
     document.getElementById('scoreboard')?.classList.add('open')
+  }
+
+  hideMatchEnd() {
+    const el = document.getElementById('match-end')
+    if (el) el.style.display = 'none'
+    document.getElementById('scoreboard')?.classList.remove('open')
+    this.matchOver = false
+    this._respawnSent = false
+  }
+
+  setKiller(name) {
+    this.killerName = name
   }
 }
 
